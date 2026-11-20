@@ -1,0 +1,26 @@
+name: Update track history and schedule
+on:
+  schedule:
+    - cron: "*/30 * * * *"   # log tracks (feed keeps ~2.5h of past departures, so 30 min loses nothing)
+    - cron: "7 9 * * *"      # also rebuild the schedule once a day
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Log tracks
+        run: python scripts/log_tracks.py
+      - name: Refresh schedule (daily, ~4-5am New York)
+        if: github.event_name == 'workflow_dispatch' || github.event.schedule == '7 9 * * *'
+        run: python scripts/build_schedule.py
+      - name: Commit changes
+        run: |
+          git config user.name "gcm-track-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data
+          git diff --cached --quiet || (git commit -m "Update track data" && git push)

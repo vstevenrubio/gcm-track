@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>GCM Track</title>
+<meta name="description" content="Predicts which Grand Central Madison track your LIRR train to Mineola will leave from.">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="GCM Track">
+<meta name="theme-color" content="#0f1b2d">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-180.png">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <div>
+    <h1>Grand Central → Mineola</h1>
+    <p id="status" class="muted">Loading…</p>
+  </div>
+  <button id="refresh" aria-label="Refresh">↻</button>
+</header>
+<nav class="seg" role="tablist">
+  <button id="f-direct" class="on" role="tab">Mineola trains</button>
+  <button id="f-all" role="tab">All trains</button>
+</nav>
+<main id="list"></main>
+<footer class="muted">
+  <p><b>Upper level</b>: tracks 201–204 · <b>Lower level</b>: 301–304.<br>
+  <b>West</b>: 201, 202, 301, 302 · <b>East</b>: 203, 204, 303, 304.</p>
+  <p>Posted tracks come live from the MTA feed. Predictions come from the tracks each train actually used on past days. Not affiliated with the MTA; always confirm the departure boards.</p>
+</footer>
+<script src="gtfsrt.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
