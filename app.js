@@ -188,6 +188,7 @@ function card({ t, date, sched, actual, live }) {
     <div class="sub">${esc(t.h)} · Train ${esc(t.n)}${late > 0 ? ` · <span class="late">${late} min late</span>` : ""}</div>
     <div class="sub">${esc(route.name)}${mineola}</div>
     ${where}
+    ${mins >= 0 && !live?.canceled ? `<div class="alert-row">${Alerts.button(t.n, date)}</div>` : ""}
   </article>`;
 }
 function render() {
@@ -217,9 +218,16 @@ function setFilter(f) {
   document.getElementById("refresh").onclick = refresh;
   document.getElementById("f-direct").onclick = () => setFilter("direct");
   document.getElementById("f-all").onclick = () => setFilter("all");
+  document.getElementById("list").addEventListener("click", async (e) => {
+    const b = e.target.closest(".bell"); if (!b || b.disabled) return;
+    b.disabled = true; b.textContent = "Saving…";
+    try { await Alerts.toggle(b.dataset.train, b.dataset.date); } catch (err) { alert("Couldn't set the alert: " + err.message); }
+    render();
+  });
   try { await loadStatic(); } catch (e) { document.getElementById("status").textContent = "Couldn't load schedule: " + e.message; return; }
   render(); await refresh();
   setInterval(() => { if (!document.hidden) refresh(); }, 30000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+  Alerts.sync().then(render);
 })();
