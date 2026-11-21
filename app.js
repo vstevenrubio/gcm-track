@@ -7,7 +7,12 @@ const WINDOW_BEFORE = 15 * 60;      // keep departed trains visible for 15 min
 const WINDOW_AFTER = 5 * 3600;      // look ahead 5 hours
 const LOCAL_KEY = "gcm-local-history";
 
-const state = { schedule: null, history: {}, live: new Map(), liveAt: null, filter: "direct", error: null };
+const TT_URL = "https://backend-unified.mylirr.org/arrivals/GCT"; // server behind the MTA TrainTime app
+
+const state = { schedule: null, history: {}, planned: {}, live: new Map(), tt: new Map(), liveAt: null, filter: "direct", error: null };
+
+// TrainTime "sched_track" codes: U1-U4 = upper level 201-204, L1-L4 = lower level 301-304.
+const schedToTrack = (s) => /^[UL][1-4]$/.test(s || "") ? (s[0] === "U" ? "20" : "30") + s[1] : "";
 
 // ---------- time helpers (always New York time, whatever the phone is set to) ----------
 const nyParts = (ms) => Object.fromEntries(new Intl.DateTimeFormat("en-US", {
@@ -33,14 +38,21 @@ function mergeHistory(shared) {
   for (const src of [shared, local]) for (const [train, days] of Object.entries(src || {})) Object.assign(merged[train] ||= {}, days);
   state.history = merged;
 }
-function recordObservations(feed) {
+function recordObservations(obs) {
   const local = loadLocal(); let changed = false;
-  for (const t of feed.trips) {
-    if (t.dir !== 0 || !t.date) continue;
-    const s = t.stops.find(x => x.stop === GCT);
-    if (s && VALID.includes(s.track) && local[t.train]?.[t.date] !== s.track) { (local[t.train] ||= {})[t.date] = s.track; changed = true; }
+  for (const { train, date, track } of obs) {
+    if (date && VALID.includes(track) && local[train]?.[date] !== track) { (local[train] ||= {})[date] = track; changed = true; }
   }
   if (changed) { saveLocal(local); for (const [k, v] of Object.entries(local)) Object.assign(state.history[k] ||= {}, v); }
+}
+// How often the MTA's planned track turned out to be the real one (all trains, past days).
+function planReliability(today) {
+  let hit = 0, n = 0;
+  for (const [train, days] of Object.entries(state.planned)) for (const [date, plan] of Object.entries(days)) {
+    const actual = state.history[train]?.[date];
+    if (date < today && actual) { n++; if (actual === plan) hit++; }
+  }
+  return n ? { p: hit / n, n } : null;
 }
 
 // ---------- prediction ----------
@@ -81,20 +93,35 @@ async function loadStatic() {
     fetch("data/schedule.json", { cache: "no-cache" }).then(r => r.json()),
     fetch("data/history.json", { cache: "no-cache" }).then(r => r.ok ? r.json() : { trains: {} }).catch(() => ({ trains: {} })),
   ]);
-  state.schedule = sched; mergeHistory(hist.trains);
+  state.schedule = sched; mergeHistory(hist.trains); state.planned = hist.planned || {};
+}
+async function loadGtfsRt() {
+  const feed = await GtfsRt.fetchFeed(), live = new Map(), obs = [];
+  for (const t of feed.trips) {
+    if (t.dir !== 0) continue;
+    const s = t.stops.find(x => x.stop === GCT);
+    if (s || t.canceled) live.set(t.train + "|" + t.date, { time: s?.time ?? null, track: VALID.includes(s?.track) ? s.track : "", canceled: t.canceled });
+    if (s) obs.push({ train: t.train, date: t.date, track: s.track });
+  }
+  state.live = live; recordObservations(obs);
+}
+async function loadTrainTime() {
+  const r = await fetch(TT_URL, { cache: "no-store", headers: { "Accept-Version": "3.0" } });
+  if (!r.ok) throw new Error("TrainTime " + r.status);
+  const tt = new Map(), obs = [];
+  for (const a of (await r.json()).arrivals || []) {
+    if (a.direction !== "E" || a.railroad !== "LIRR") continue;
+    const date = (a.run_date || "").replace(/-/g, "");
+    const rec = { time: a.time, track: VALID.includes(a.track) ? a.track : "", planned: schedToTrack(a.sched_track), canceled: !!a.status?.canceled };
+    tt.set(a.train_num + "|" + date, rec);
+    obs.push({ train: a.train_num, date, track: rec.track });
+  }
+  state.tt = tt; recordObservations(obs);
 }
 async function loadLive() {
-  try {
-    const feed = await GtfsRt.fetchFeed();
-    state.live = new Map();
-    for (const t of feed.trips) {
-      if (t.dir !== 0) continue;
-      const s = t.stops.find(x => x.stop === GCT);
-      if (s || t.canceled) state.live.set(t.train + "|" + t.date, { time: s?.time ?? null, track: VALID.includes(s?.track) ? s.track : "", canceled: t.canceled });
-    }
-    recordObservations(feed);
-    state.liveAt = Date.now(); state.error = null;
-  } catch (e) { state.error = "Live data unavailable (" + e.message + ")"; }
+  const [tt, rt] = await Promise.allSettled([loadTrainTime(), loadGtfsRt()]);
+  if (tt.status === "rejected" && rt.status === "rejected") { state.error = "Live data unavailable (" + rt.reason.message + ")"; return; }
+  state.liveAt = Date.now(); state.error = null;
 }
 
 // ---------- rendering ----------
@@ -106,7 +133,13 @@ function departures() {
     if (!services[t.s].includes(date)) continue;
     if (state.filter === "direct" && t.m == null) continue;
     const sched = gtfsToEpoch(date, t.d);
-    const live = state.live.get(t.n + "|" + date);
+    const rt = state.live.get(t.n + "|" + date), tt = state.tt.get(t.n + "|" + date);
+    const live = (rt || tt) && {
+      time: tt?.time ?? rt?.time ?? null,
+      track: tt?.track || rt?.track || "",
+      planned: tt?.planned || state.planned[t.n]?.[date] || "",
+      canceled: !!(tt?.canceled || rt?.canceled),
+    };
     const actual = live?.time ? live.time * 1000 : sched;
     if (actual < now - WINDOW_BEFORE * 1000 || sched > now + WINDOW_AFTER * 1000) continue;
     out.push({ t, date, sched, actual, live });
@@ -122,10 +155,17 @@ function card({ t, date, sched, actual, live }) {
   const when = live?.canceled ? "Canceled" : mins < 0 ? "departed" : mins === 0 ? "now" : `in ${mins} min`;
   const mineola = t.m != null ? ` · Mineola ${fmtTime(gtfsToEpoch(date, t.m) + (actual - sched))}` : "";
   let badge, where = "";
+  const place = (tr) => `${tr[0] === "3" ? "Lower level" : "Upper level"}, ${"12".includes(tr[2]) ? "West" : "East"}`;
+  const planned = live?.planned || state.planned[t.n]?.[date] || "";
   if (live?.track) {
     badge = `<div class="trk posted"><div class="lbl">Track</div><div class="num">${live.track}</div><div class="pct">posted</div></div>`;
-    const lvl = live.track[0] === "3" ? "Lower level" : "Upper level", side = "12".includes(live.track[2]) ? "West" : "East";
-    where = `<div class="where"><b>${lvl}, ${side}</b> — head down now.</div>`;
+    where = `<div class="where"><b>${place(live.track)}</b> — head down now.</div>`;
+  } else if (planned) {
+    const rel = planReliability(date), hist = predict(t, date);
+    badge = `<div class="trk guess"><div class="lbl">Planned</div><div class="num">${planned}</div><div class="pct">${rel ? pct(rel.p) + " reliable" : "MTA plan"}</div></div>`;
+    where = `<div class="where"><b>${place(planned)}</b>`
+      + `<br><span class="alts">MTA's planned track${rel ? ` · matched the real track ${pct(rel.p)} of ${rel.n} past departures` : ""}`
+      + `${hist && hist.ranked[0].track !== planned ? ` · history says ${hist.ranked[0].track} ${pct(hist.ranked[0].p)}` : ""}</span></div>`;
   } else {
     const p = predict(t, date);
     if (p) {
