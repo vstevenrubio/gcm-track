@@ -86,10 +86,6 @@ function predict(trip, date) {
 
 // ---------- platforms: each level of each cavern is one island platform serving two tracks ----------
 const platOf = (tr) => tr[0] + ("12".includes(tr[2]) ? "W" : "E");               // "304" -> "3E"
-const platLevel = (pk) => pk[0] === "3" ? "Lower" : "Upper";
-const platSide = (pk) => pk[1] === "W" ? "West" : "East";
-const platName = (pk) => `${platLevel(pk)} level · ${platSide(pk)} platform`;
-const platTracks = (pk) => pk[1] === "W" ? `${pk[0]}01/${pk[0]}02` : `${pk[0]}03/${pk[0]}04`;
 
 // ---------- data loading ----------
 async function loadStatic() {
@@ -160,30 +156,30 @@ function card({ t, date, sched, actual, live }) {
   const when = live?.canceled ? "Canceled" : mins < 0 ? "departed" : mins === 0 ? "now" : `in ${mins} min`;
   const mineola = t.m != null ? ` · Mineola ${fmtTime(gtfsToEpoch(date, t.m) + (actual - sched))}` : "";
   let badge, where = "";
-  // Badge headline = platform (level + side); exact track is secondary.
-  const plat = (kind, lbl, pk, foot) => `<div class="trk ${kind}"><div class="lbl">${lbl}</div>`
-    + `<div class="plat">${platLevel(pk)}<br>${platSide(pk)}</div><div class="pct">${foot}</div></div>`;
+  // Badge: big track number, level (Upper/Lower) in small letters underneath.
+  const level = (tr) => tr[0] === "3" ? "Lower" : "Upper";
+  const trk = (kind, lbl, tr, foot) => `<div class="trk ${kind}"><div class="lbl">${lbl}</div>`
+    + `<div class="num">${tr}</div><div class="pct">${foot}</div></div>`;
   const warn = live?.unusual ? `<br><span class="late">⚠ MTA flags an unusual track for this train today</span>` : "";
   const planned = live?.planned || state.planned[t.n]?.[date] || "";
   if (live?.track) {
-    const pk = platOf(live.track);
-    badge = plat("posted", "Posted", pk, `Track ${live.track}`);
-    where = `<div class="where"><b>${platName(pk)}</b> · track ${live.track} — head down now.${warn}</div>`;
+    badge = trk("posted", "Posted", live.track, level(live.track));
+    where = `<div class="where"><b>Track ${live.track}</b> · ${level(live.track)} level — head down now.${warn}</div>`;
   } else if (planned) {
-    const pk = platOf(planned), rel = planReliability(date), hist = predict(t, date);
-    badge = plat("guess", "Planned", pk, `Track ${planned}`);
-    const histNote = hist && hist.platforms[0].pk !== pk ? ` · history says ${platLevel(hist.platforms[0].pk)} ${platSide(hist.platforms[0].pk)} ${pct(hist.platforms[0].p)}` : "";
-    where = `<div class="where"><b>${platName(pk)}</b> (tracks ${platTracks(pk)})`
-      + `<br><span class="alts">MTA's planned track${rel ? ` · plan got the right platform ${pct(rel.platform)} of the time (exact track ${pct(rel.track)}, ${rel.n} departures)` : " · accuracy shown once a few days of data are in"}${histNote}</span>${warn}</div>`;
+    const rel = planReliability(date), hist = predict(t, date);
+    badge = trk("guess", "Planned", planned, level(planned));
+    const histNote = hist && hist.ranked[0].track !== planned ? ` · history says ${hist.ranked[0].track} ${pct(hist.ranked[0].p)}` : "";
+    where = `<div class="where"><b>Track ${planned}</b> · ${level(planned)} level`
+      + `<br><span class="alts">MTA's planned track${rel ? ` · right platform ${pct(rel.platform)} of the time, exact track ${pct(rel.track)} (${rel.n} departures)` : " · accuracy shown once a few days of data are in"}${histNote}</span>${warn}</div>`;
   } else {
     const p = predict(t, date);
     if (p) {
-      const top = p.platforms[0], alt = p.platforms[1];
-      badge = plat("guess", "Likely", top.pk, pct(top.p));
-      where = `<div class="where"><b>${platName(top.pk)}</b> (tracks ${platTracks(top.pk)}) · most likely track ${p.ranked[0].track}`
-        + `<br><span class="alts">From ${p.n} past ${p.n === 1 ? "trip" : "trips"} of ${p.basis}${alt ? ` · also ${platLevel(alt.pk)} ${platSide(alt.pk)} ${pct(alt.p)}` : ""}</span></div>`;
+      const top = p.ranked[0], alts = p.ranked.slice(1, 3).map(x => `${x.track} ${pct(x.p)}`).join(", ");
+      badge = trk("guess", "Likely", top.track, `${level(top.track)} · ${pct(top.p)}`);
+      where = `<div class="where"><b>Track ${top.track}</b> · ${level(top.track)} level`
+        + `<br><span class="alts">From ${p.n} past ${p.n === 1 ? "trip" : "trips"} of ${p.basis}${alts ? " · also " + alts : ""}</span></div>`;
     } else {
-      badge = `<div class="trk none"><div class="lbl">Platform</div><div class="num">?</div><div class="pct">no history yet</div></div>`;
+      badge = `<div class="trk none"><div class="lbl">Track</div><div class="num">?</div><div class="pct">no history yet</div></div>`;
     }
   }
   return `<article class="card${mins < 0 ? " past" : ""}${live?.canceled ? " canceled" : ""}" style="--rc:${esc(route.color)}">

@@ -21,7 +21,6 @@ h1{font-size:22px;margin:0;letter-spacing:-.01em}
 .trk .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.06em;font-weight:600}
 .trk .num{font-size:30px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.1}
 .trk .pct{font-size:12px;font-weight:600}
-.trk .plat{font-size:19px;font-weight:800;line-height:1.15;margin:2px 0}
 .trk.posted{background:var(--posted-bg);color:var(--posted)}
 .trk.guess{background:var(--guess-bg);color:var(--accent)}
 .trk.none{background:var(--line);color:var(--muted)}
