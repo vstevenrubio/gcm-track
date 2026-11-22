@@ -50,3 +50,32 @@ footer p{margin:0 0 8px}
 #picker-list li.muted{padding:12px 16px}
 #picker-list button{display:block;width:100%;text-align:left;border:0;border-top:1px solid var(--line);background:none;color:var(--text);font:inherit;font-size:16px;padding:12px 16px;cursor:pointer}
 #picker-list button.on{font-weight:700;color:var(--accent)}
+
+/* my trains, history, pro */
+.card{cursor:pointer}
+.star{border:0;background:none;color:var(--muted);font-size:20px;line-height:1;padding:0 0 0 8px;vertical-align:2px;cursor:pointer}
+.star.on{color:#f59e0b}
+.hist-link{color:var(--accent);white-space:nowrap}
+footer a,.link.inline{color:var(--accent);font-size:13px;padding:0}
+dialog.sheet{border:0;padding:0;width:min(440px,calc(100vw - 32px));max-height:min(680px,calc(100dvh - 80px));border-radius:16px;background:var(--card);color:var(--text);box-shadow:0 12px 40px rgba(0,0,0,.35)}
+dialog.sheet[open]{display:flex;flex-direction:column}
+dialog.sheet::backdrop{background:rgba(0,0,0,.45)}
+.sheet-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:14px 12px 6px 16px}
+.sheet-head h2{font-size:17px;margin:0}
+.sheet-body{padding:0 16px 16px;overflow-y:auto}
+.bars{display:grid;gap:6px;margin:10px 0 14px}
+.bar{display:grid;grid-template-columns:64px 1fr 40px;align-items:center;gap:8px;font-size:14px}
+.bar-lbl{font-weight:700;font-variant-numeric:tabular-nums}
+.bar-lbl small{font-weight:500;color:var(--muted);margin-left:4px;font-size:11px}
+.bar-track{height:10px;background:var(--line);border-radius:5px;overflow:hidden}
+.bar-track span{display:block;height:100%;background:var(--accent);border-radius:5px}
+.bar-n{text-align:right;color:var(--muted);font-size:13px}
+.hist-days{list-style:none;margin:0;padding:0}
+.hist-days li{display:grid;grid-template-columns:1fr 48px 1fr;gap:8px;padding:8px 0;border-top:1px solid var(--line);font-size:14px}
+.hist-days li .muted{margin:0;text-align:right}
+.pro-reason{font-weight:600;color:var(--warn);margin:4px 0}
+.pro-status{margin:4px 0 10px}
+.pro-list{list-style:none;margin:0;padding:0}
+.pro-list li{display:flex;gap:12px;padding:10px 0;border-top:1px solid var(--line);font-size:15px}
+.pro-icon{font-size:20px;width:28px;text-align:center}
+.pro-list .muted{font-size:13px}

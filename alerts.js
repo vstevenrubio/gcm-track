@@ -43,7 +43,10 @@ const Alerts = (() => {
     const { sub, isNew } = await subscription();
     const s = sub.toJSON(), cur = mode(train, date);
     if (cur === "off") { await post("/watch", { subscription: s, train, date }); watches.add(train + "|" + date); }
-    else if (cur === "today") {
+    else if (cur === "today" && [...watches].filter(w => w.endsWith("|")).length >= Pro.limit("daily")) {
+      await post("/unwatch", { endpoint: s.endpoint, train, date }); watches.delete(train + "|" + date); save();
+      Pro.show(`Free accounts get ${Pro.FREE.daily} every-day alert.`); return;
+    } else if (cur === "today") {
       await post("/unwatch", { endpoint: s.endpoint, train, date });
       await post("/watch", { subscription: s, train, date: "" });
       watches.delete(train + "|" + date); watches.add(train + "|");

@@ -9,7 +9,12 @@ const LOCAL_KEY = "gcm-local-history";
 const DEST_KEY = "gcm-dest";
 const MINEOLA = "132";
 
-const TT_URL = "https://backend-unified.mylirr.org/arrivals/GCT"; // server behind the MTA TrainTime app
+const TT_URL = "https://backend-unified.mylirr.org/arrivals/GCT"; // server behind the MTA TrainTime app (unofficial)
+// true = use only the MTA's official public feed (safe for a paid/App Store build; tracks post a few minutes later,
+// and no "planned" track). Keep in step with DATA_SOURCE in worker/wrangler.toml and OFFICIAL_ONLY in the workflow.
+const OFFICIAL_ONLY = false;
+const MINE_AHEAD = 24 * 3600;       // "My trains" looks a day ahead
+const SAVED_KEY = "gcm-saved";
 
 const state = { schedule: null, history: {}, planned: {}, live: new Map(), tt: new Map(), liveAt: null, filter: "direct", dest: MINEOLA, destIdx: null, error: null };
 
@@ -77,6 +82,17 @@ function setDest(id) {
   document.title = "GCM Track · " + name;
 }
 
+// ---------- my trains (saved train numbers) ----------
+let saved = new Set();
+try { saved = new Set(JSON.parse(localStorage.getItem(SAVED_KEY)) || []); } catch {}
+function toggleSaved(train) {
+  if (saved.has(train)) saved.delete(train);
+  else if (saved.size >= Pro.limit("saved")) return Pro.show(`Free accounts can save ${Pro.FREE.saved} train.`);
+  else saved.add(train);
+  try { localStorage.setItem(SAVED_KEY, JSON.stringify([...saved])); } catch {}
+  render();
+}
+
 // ---------- prediction ----------
 function tally(obs, today, weight, out) {
   for (const [date, track] of Object.entries(obs || {})) {
@@ -141,7 +157,7 @@ async function loadTrainTime() {
   state.tt = tt; recordObservations(obs);
 }
 async function loadLive() {
-  const [tt, rt] = await Promise.allSettled([loadTrainTime(), loadGtfsRt()]);
+  const [tt, rt] = await Promise.allSettled([OFFICIAL_ONLY ? Promise.reject(new Error("off")) : loadTrainTime(), loadGtfsRt()]);
   if (tt.status === "rejected" && rt.status === "rejected") { state.error = "Live data unavailable (" + rt.reason.message + ")"; return; }
   state.liveAt = Date.now(); state.error = null;
 }
@@ -154,6 +170,7 @@ function departures() {
   for (const date of dates) for (const t of trips) {
     if (!services[t.s].includes(date)) continue;
     if (state.filter === "direct" && minsTo(t) == null) continue;
+    if (state.filter === "mine" && !saved.has(t.n)) continue;
     const sched = gtfsToEpoch(date, t.d);
     const rt = state.live.get(t.n + "|" + date), tt = state.tt.get(t.n + "|" + date);
     const live = (rt || tt) && {
@@ -164,10 +181,14 @@ function departures() {
       unusual: !!tt?.unusual,
     };
     const actual = live?.time ? live.time * 1000 : sched;
-    if (actual < now - WINDOW_BEFORE * 1000 || sched > now + WINDOW_AFTER * 1000) continue;
+    const ahead = state.filter === "mine" ? MINE_AHEAD : WINDOW_AFTER;
+    if (actual < now - WINDOW_BEFORE * 1000 || sched > now + ahead * 1000) continue;
     out.push({ t, date, sched, actual, live });
   }
-  return out.sort((a, b) => a.actual - b.actual);
+  out.sort((a, b) => a.actual - b.actual);
+  if (state.filter !== "mine") return out;
+  const seen = new Set();   // My trains: just the next run of each saved train
+  return out.filter(d => !seen.has(d.t.n) && seen.add(d.t.n));
 }
 const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const pct = (p) => Math.round(p * 100) + "%";
@@ -205,11 +226,13 @@ function card({ t, date, sched, actual, live }) {
       badge = `<div class="trk none"><div class="lbl">Track</div><div class="num">?</div><div class="pct">no history yet</div></div>`;
     }
   }
-  return `<article class="card${mins < 0 ? " past" : ""}${live?.canceled ? " canceled" : ""}" style="--rc:${esc(route.color)}">
-    <div class="time">${fmtTime(actual)}<small>${when}</small></div>
+  const star = saved.has(t.n);
+  const day = state.filter === "mine" && date !== ymd(now) && date > ymd(now) ? `<small>tomorrow</small>` : "";
+  return `<article class="card${mins < 0 ? " past" : ""}${live?.canceled ? " canceled" : ""}" style="--rc:${esc(route.color)}" data-train="${esc(t.n)}" data-date="${date}">
+    <div class="time">${fmtTime(actual)}${day}<small>${when}</small><button class="star${star ? " on" : ""}" data-star="${esc(t.n)}" aria-label="${star ? "Remove from" : "Add to"} My trains">${star ? "★" : "☆"}</button></div>
     ${badge}
     <div class="sub">${esc(t.h)} · Train ${esc(t.n)}${late > 0 ? ` · <span class="late">${late} min late</span>` : ""}</div>
-    <div class="sub">${esc(route.name)}${arrive}</div>
+    <div class="sub">${esc(route.name)}${arrive} · <span class="hist-link">Track history ›</span></div>
     ${where}
     ${mins >= 0 && !live?.canceled ? `<div class="alert-row">${Alerts.button(t.n, date)}</div>` : ""}
   </article>`;
@@ -217,10 +240,39 @@ function card({ t, date, sched, actual, live }) {
 function render() {
   if (!state.schedule) return;
   const list = departures();
+  const emptyMine = `<div class="empty">No saved trains yet.<br>Tap ☆ next to a train's time to add it here.</div>`;
   document.getElementById("list").innerHTML = list.length ? list.map(card).join("")
-    : `<div class="empty">No ${state.filter === "direct" ? "direct " + esc(destName()) + " " : ""}trains in the next ${WINDOW_AFTER / 3600} hours.${state.filter === "direct" && destName() !== "Jamaica" ? "<br>Try “All trains” and change at Jamaica." : ""}</div>`;
+    : state.filter === "mine" ? (saved.size ? `<div class="empty">None of your saved trains run in the next 24 hours.</div>` : emptyMine) : `<div class="empty">No ${state.filter === "direct" ? "direct " + esc(destName()) + " " : ""}trains in the next ${WINDOW_AFTER / 3600} hours.${state.filter === "direct" && destName() !== "Jamaica" ? "<br>Try “All trains” and change at Jamaica." : ""}</div>`;
   document.getElementById("status").textContent = state.error
     || (state.liveAt ? `Live · updated ${fmtTime(state.liveAt)}` : "Schedule only");
+}
+
+// ---------- track history for one train ----------
+function showHistory(train) {
+  const trip = state.schedule.trips.find(t => t.n === train);
+  const today = ymd(Date.now()), maxDays = Pro.limit("historyDays");
+  const days = Object.entries(state.history[train] || {})
+    .sort((a, b) => b[0].localeCompare(a[0]));
+  const shown = days.filter(([d]) => maxDays === Infinity || daysBetween(today, d) < maxDays);
+  const counts = {};
+  for (const [, tr] of days) counts[tr] = (counts[tr] || 0) + 1;
+  const bars = Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([tr, n]) =>
+    `<div class="bar"><span class="bar-lbl">${tr}<small>${tr[0] === "3" ? "Lower" : "Upper"}</small></span>`
+    + `<span class="bar-track"><span style="width:${Math.round(n / days.length * 100)}%"></span></span><span class="bar-n">${pct(n / days.length)}</span></div>`).join("");
+  let match = 0, compared = 0;
+  for (const [d, tr] of days) { const p = state.planned[train]?.[d]; if (p) { compared++; if (p === tr) match++; } }
+  const fmtDay = (d) => new Intl.DateTimeFormat("en-US", { timeZone: TZ, weekday: "short", month: "short", day: "numeric" }).format(gtfsToEpoch(d, 43200));
+  const rows = shown.map(([d, tr]) => { const p = state.planned[train]?.[d];
+    return `<li><span>${fmtDay(d)}</span><b>${tr}</b><span class="muted">${p && p !== tr ? `planned ${p}` : p ? "as planned" : ""}</span></li>`; }).join("");
+  const hidden = days.length - shown.length;
+  document.getElementById("hist-title").textContent = `Train ${train}` + (trip ? ` · ${fmtTime(gtfsToEpoch(today, trip.d))} to ${trip.h}` : "");
+  document.getElementById("hist-body").innerHTML = days.length ? `
+    <p class="muted">Tracks used on ${days.length} recorded ${days.length === 1 ? "day" : "days"}${compared ? ` · MTA plan held ${match} of ${compared}` : ""}</p>
+    <div class="bars">${bars}</div>
+    <ul class="hist-days">${rows}</ul>
+    ${hidden ? `<button class="link pro-more">See ${hidden} older ${hidden === 1 ? "day" : "days"} with Pro</button>` : ""}`
+    : `<p class="muted">No track history for this train yet. It builds up automatically every day the train runs.</p>`;
+  document.getElementById("hist").showModal();
 }
 
 // ---------- station picker ----------
@@ -246,6 +298,7 @@ function setFilter(f) {
   state.filter = f;
   document.getElementById("f-direct").classList.toggle("on", f === "direct");
   document.getElementById("f-all").classList.toggle("on", f === "all");
+  document.getElementById("f-mine").classList.toggle("on", f === "mine");
   try { localStorage.setItem("gcm-filter", f); } catch {}
   render();
 }
@@ -269,8 +322,19 @@ function setFilter(f) {
   document.getElementById("refresh").onclick = refresh;
   document.getElementById("f-direct").onclick = () => setFilter("direct");
   document.getElementById("f-all").onclick = () => setFilter("all");
+  document.getElementById("f-mine").onclick = () => setFilter("mine");
+  document.getElementById("pro-link").onclick = () => Pro.show();
+  for (const d of document.querySelectorAll("dialog.sheet")) {
+    d.addEventListener("click", (e) => { if (e.target === d || e.target.closest(".close")) d.close(); });
+  }
+  document.getElementById("hist").addEventListener("click", (e) => {
+    if (e.target.closest(".pro-more")) Pro.show(`Free accounts see the last ${Pro.FREE.historyDays} days.`);
+  });
   document.getElementById("list").addEventListener("click", async (e) => {
-    const b = e.target.closest(".bell"); if (!b || b.disabled) return;
+    const st = e.target.closest(".star"); if (st) return toggleSaved(st.dataset.star);
+    const c = e.target.closest(".card"); const b = e.target.closest(".bell");
+    if (c && !b) return showHistory(c.dataset.train);
+    if (!b || b.disabled) return;
     b.disabled = true; b.textContent = "Saving…";
     try { await Alerts.toggle(b.dataset.train, b.dataset.date); } catch (err) { alert("Couldn't set the alert: " + err.message); }
     render();

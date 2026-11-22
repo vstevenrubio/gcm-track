@@ -26,8 +26,21 @@
 <nav class="seg" role="tablist">
   <button id="f-direct" class="on" role="tab">Mineola trains</button>
   <button id="f-all" role="tab">All trains</button>
+  <button id="f-mine" role="tab">★ Mine</button>
 </nav>
 <main id="list"></main>
+<dialog id="hist" class="sheet" aria-labelledby="hist-title">
+  <div class="sheet-head"><h2 id="hist-title">Track history</h2><button class="link close">Done</button></div>
+  <div id="hist-body" class="sheet-body"></div>
+</dialog>
+<dialog id="pro" class="sheet" aria-labelledby="pro-title">
+  <div class="sheet-head"><h2 id="pro-title">GCM Track Pro</h2><button class="link close">Done</button></div>
+  <div class="sheet-body">
+    <p class="pro-reason" hidden></p>
+    <p class="pro-status"></p>
+    <ul class="pro-list"></ul>
+  </div>
+</dialog>
 <dialog id="picker" aria-label="Choose your station">
   <div class="picker-head">
     <input id="picker-q" type="search" placeholder="Search stations" autocomplete="off" enterkeyhint="search">
@@ -38,9 +51,11 @@
 </dialog>
 <footer class="muted">
   <p><b>Upper level</b>: tracks 201–204 · <b>Lower level</b>: tracks 301–304</p>
+  <p><button id="pro-link" class="link inline">★ GCM Track Pro</button> · <a href="privacy.html">Privacy</a> · <a href="https://github.com/vstevenrubio/gcm-track/issues">Support</a></p>
   <p>Posted and planned tracks come live from the MTA (the same data as TrainTime). Further ahead, predictions come from the tracks each train actually used on past days. Not affiliated with the MTA; always confirm the departure boards.</p>
 </footer>
 <script src="gtfsrt.js"></script>
+<script src="pro.js"></script>
 <script src="alerts.js"></script>
 <script src="app.js"></script>
 </body>

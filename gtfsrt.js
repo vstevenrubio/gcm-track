@@ -40,3 +40,4 @@ const GtfsRt = (() => {
   }
   return { decode, fetchFeed };
 })();
+globalThis.GtfsRt = GtfsRt;   // also usable from the alert worker (import)

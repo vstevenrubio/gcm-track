@@ -11,3 +11,5 @@ CREATE TABLE IF NOT EXISTS watches (
 CREATE INDEX IF NOT EXISTS watches_date ON watches (date);
 -- last track already announced for a watch on a given day (to detect track changes)
 CREATE TABLE IF NOT EXISTS sent (watch_id INTEGER NOT NULL, date TEXT NOT NULL, track TEXT NOT NULL, PRIMARY KEY (watch_id, date));
+-- other one-off notifications per watch and day: kind = 'cancel' | 'delay' (value = minutes late already announced)
+CREATE TABLE IF NOT EXISTS events (watch_id INTEGER NOT NULL, date TEXT NOT NULL, kind TEXT NOT NULL, value TEXT, PRIMARY KEY (watch_id, date, kind));

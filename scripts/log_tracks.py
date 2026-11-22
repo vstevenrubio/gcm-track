@@ -27,8 +27,10 @@ def main():
         if day.get(date) != track:
             day[date] = track; added += 1
 
+    # OFFICIAL_ONLY=1 -> use only the MTA's official public feed (no planned tracks), e.g. for a paid build.
+    official_only = os.environ.get("OFFICIAL_ONLY") == "1"
     try:  # TrainTime server: planned track for upcoming trains, posted track shortly before departure
-        for d in traintime.departures():
+        for d in ([] if official_only else traintime.departures()):
             if d["train"] and d["date"]:
                 if d["planned"] in VALID:
                     put(planned, d["train"], d["date"], d["planned"])
