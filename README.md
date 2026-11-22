@@ -1,6 +1,6 @@
 # GCM Track
 
-iPhone web app that shows which Grand Central Madison track your LIRR train to Mineola leaves from,
+iPhone web app that shows which Grand Central Madison track your LIRR train leaves from (pick your station; Mineola by default),
 and predicts it before the MTA posts it.
 
 * **Posted track**: read live from the MTA LIRR GTFS-realtime feed (no API key; it allows browser access).

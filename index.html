@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>GCM Track</title>
-<meta name="description" content="Predicts which Grand Central Madison track your LIRR train to Mineola will leave from.">
+<meta name="description" content="Predicts which Grand Central Madison track your LIRR train will leave from.">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -18,7 +18,7 @@
 <body>
 <header>
   <div>
-    <h1>Grand Central → Mineola</h1>
+    <h1><button id="dest" class="dest" aria-label="Change destination">Grand Central → <span id="dest-name">Mineola</span> <span class="caret">▾</span></button></h1>
     <p id="status" class="muted">Loading…</p>
   </div>
   <button id="refresh" aria-label="Refresh">↻</button>
@@ -28,6 +28,14 @@
   <button id="f-all" role="tab">All trains</button>
 </nav>
 <main id="list"></main>
+<dialog id="picker" aria-label="Choose your station">
+  <div class="picker-head">
+    <input id="picker-q" type="search" placeholder="Search stations" autocomplete="off" enterkeyhint="search">
+    <button id="picker-close" class="link">Done</button>
+  </div>
+  <p class="muted picker-note">Show trains from Grand Central that stop at:</p>
+  <ul id="picker-list"></ul>
+</dialog>
 <footer class="muted">
   <p><b>Upper level</b>: tracks 201–204 · <b>Lower level</b>: tracks 301–304</p>
   <p>Posted and planned tracks come live from the MTA (the same data as TrainTime). Further ahead, predictions come from the tracks each train actually used on past days. Not affiliated with the MTA; always confirm the departure boards.</p>

@@ -1,4 +1,4 @@
-// GCM Track — predicts the Grand Central Madison track for LIRR trains to Mineola.
+// GCM Track — predicts the Grand Central Madison track for your LIRR train (Mineola by default; any station via the picker).
 const GCT = "349";
 const VALID = ["201", "202", "203", "204", "301", "302", "303", "304"];
 const TZ = "America/New_York";
@@ -6,10 +6,12 @@ const HALF_LIFE_DAYS = 45;          // older observations count less
 const WINDOW_BEFORE = 15 * 60;      // keep departed trains visible for 15 min
 const WINDOW_AFTER = 5 * 3600;      // look ahead 5 hours
 const LOCAL_KEY = "gcm-local-history";
+const DEST_KEY = "gcm-dest";
+const MINEOLA = "132";
 
 const TT_URL = "https://backend-unified.mylirr.org/arrivals/GCT"; // server behind the MTA TrainTime app
 
-const state = { schedule: null, history: {}, planned: {}, live: new Map(), tt: new Map(), liveAt: null, filter: "direct", error: null };
+const state = { schedule: null, history: {}, planned: {}, live: new Map(), tt: new Map(), liveAt: null, filter: "direct", dest: MINEOLA, destIdx: null, error: null };
 
 // TrainTime "sched_track" codes: U1-U4 = upper level 201-204, L1-L4 = lower level 301-304.
 const schedToTrack = (s) => /^[UL][1-4]$/.test(s || "") ? (s[0] === "U" ? "20" : "30") + s[1] : "";
@@ -55,6 +57,26 @@ function planReliability(today) {
   return n ? { track: hit / n, platform: platHit / n, n } : null;
 }
 
+// ---------- destination ----------
+const destName = () => state.schedule?.stations?.find(s => s.id === state.dest)?.name || "Mineola";
+// Minutes from leaving GCM to arriving at the chosen station, or null if the train doesn't stop there.
+function minsTo(trip) {
+  const i = state.destIdx;
+  if (i == null || !trip.x) return null;
+  for (let k = 0; k < trip.x.length; k += 2) if (trip.x[k] === i) return trip.x[k + 1];
+  return null;
+}
+function setDest(id) {
+  state.dest = id;
+  const i = state.schedule?.stations ? state.schedule.stations.findIndex(s => s.id === id) : -1;
+  state.destIdx = i < 0 ? null : i;
+  try { localStorage.setItem(DEST_KEY, id); } catch {}
+  const name = destName();
+  document.getElementById("dest-name").textContent = name;
+  document.getElementById("f-direct").textContent = name + " trains";
+  document.title = "GCM Track · " + name;
+}
+
 // ---------- prediction ----------
 function tally(obs, today, weight, out) {
   for (const [date, track] of Object.entries(obs || {})) {
@@ -70,8 +92,8 @@ function predict(trip, date) {
   tally(state.history[trip.n], date, 1, res);
   if (res.n < 3) {
     // Not enough history for this exact train: borrow from same-branch trains leaving within an hour.
-    const similar = { scores: {}, n: 0 };
-    for (const o of state.schedule.trips) if (o.n !== trip.n && o.r === trip.r && Math.abs(o.d - trip.d) <= 3600) tally(state.history[o.n], date, 0.35, similar);
+    const similar = { scores: {}, n: 0 }, servesDest = minsTo(trip) != null;
+    for (const o of state.schedule.trips) if (o.n !== trip.n && o.r === trip.r && Math.abs(o.d - trip.d) <= 3600 && (!servesDest || minsTo(o) != null)) tally(state.history[o.n], date, 0.35, similar);
     if (res.n === 0 && similar.n) res = { ...similar, basis: "similar trains" };
     else for (const [k, v] of Object.entries(similar.scores)) res.scores[k] = (res.scores[k] || 0) + v;
   }
@@ -131,7 +153,7 @@ function departures() {
   const out = [];
   for (const date of dates) for (const t of trips) {
     if (!services[t.s].includes(date)) continue;
-    if (state.filter === "direct" && t.m == null) continue;
+    if (state.filter === "direct" && minsTo(t) == null) continue;
     const sched = gtfsToEpoch(date, t.d);
     const rt = state.live.get(t.n + "|" + date), tt = state.tt.get(t.n + "|" + date);
     const live = (rt || tt) && {
@@ -154,7 +176,8 @@ function card({ t, date, sched, actual, live }) {
   const late = Math.round((actual - sched) / 60000);
   const route = state.schedule.routes[t.r] || { name: "", color: "#888" };
   const when = live?.canceled ? "Canceled" : mins < 0 ? "departed" : mins === 0 ? "now" : `in ${mins} min`;
-  const mineola = t.m != null ? ` · Mineola ${fmtTime(gtfsToEpoch(date, t.m) + (actual - sched))}` : "";
+  const m = minsTo(t);
+  const arrive = m != null ? ` · ${esc(destName())} ${fmtTime(actual + m * 60000)}` : "";
   let badge, where = "";
   // Badge: big track number, level (Upper/Lower) in small letters underneath.
   const level = (tr) => tr[0] === "3" ? "Lower" : "Upper";
@@ -186,7 +209,7 @@ function card({ t, date, sched, actual, live }) {
     <div class="time">${fmtTime(actual)}<small>${when}</small></div>
     ${badge}
     <div class="sub">${esc(t.h)} · Train ${esc(t.n)}${late > 0 ? ` · <span class="late">${late} min late</span>` : ""}</div>
-    <div class="sub">${esc(route.name)}${mineola}</div>
+    <div class="sub">${esc(route.name)}${arrive}</div>
     ${where}
     ${mins >= 0 && !live?.canceled ? `<div class="alert-row">${Alerts.button(t.n, date)}</div>` : ""}
   </article>`;
@@ -195,9 +218,24 @@ function render() {
   if (!state.schedule) return;
   const list = departures();
   document.getElementById("list").innerHTML = list.length ? list.map(card).join("")
-    : `<div class="empty">No ${state.filter === "direct" ? "direct Mineola " : ""}trains in the next ${WINDOW_AFTER / 3600} hours.${state.filter === "direct" ? "<br>Try “All trains” and change at Jamaica." : ""}</div>`;
+    : `<div class="empty">No ${state.filter === "direct" ? "direct " + esc(destName()) + " " : ""}trains in the next ${WINDOW_AFTER / 3600} hours.${state.filter === "direct" && destName() !== "Jamaica" ? "<br>Try “All trains” and change at Jamaica." : ""}</div>`;
   document.getElementById("status").textContent = state.error
     || (state.liveAt ? `Live · updated ${fmtTime(state.liveAt)}` : "Schedule only");
+}
+
+// ---------- station picker ----------
+function openPicker() {
+  if (!state.schedule?.stations) return;
+  const dlg = document.getElementById("picker"), q = document.getElementById("picker-q");
+  q.value = ""; fillPicker(""); dlg.showModal();
+  if (!matchMedia("(pointer: coarse)").matches) q.focus();
+}
+function fillPicker(query) {
+  const qq = query.trim().toLowerCase();
+  const list = state.schedule.stations.filter(s => s.name.toLowerCase().includes(qq)).sort((a, b) => a.name.localeCompare(b.name));
+  document.getElementById("picker-list").innerHTML = list.map(s =>
+    `<li><button data-id="${esc(s.id)}" class="${s.id === state.dest ? "on" : ""}">${esc(s.name)}${s.id === state.dest ? " ✓" : ""}</button></li>`).join("")
+    || `<li class="muted">No station matches “${esc(query)}”</li>`;
 }
 
 async function refresh() {
@@ -214,6 +252,19 @@ function setFilter(f) {
 
 (async function init() {
   try { const f = localStorage.getItem("gcm-filter"); if (f) state.filter = f; } catch {}
+  try { state.dest = localStorage.getItem(DEST_KEY) || MINEOLA; } catch {}
+  setDest(state.dest);
+  const dlg = document.getElementById("picker");
+  document.getElementById("dest").onclick = openPicker;
+  document.getElementById("picker-q").oninput = (e) => fillPicker(e.target.value);
+  document.getElementById("picker-close").onclick = () => dlg.close();
+  dlg.addEventListener("click", (e) => {
+    if (e.target === dlg) return dlg.close();                       // tap outside the sheet
+    const b = e.target.closest("button[data-id]"); if (!b) return;
+    setDest(b.dataset.id); dlg.close();
+    if (state.filter !== "direct") setFilter("direct"); else render();
+    window.scrollTo(0, 0);
+  });
   setFilter(state.filter);
   document.getElementById("refresh").onclick = refresh;
   document.getElementById("f-direct").onclick = () => setFilter("direct");
@@ -225,6 +276,7 @@ function setFilter(f) {
     render();
   });
   try { await loadStatic(); } catch (e) { document.getElementById("status").textContent = "Couldn't load schedule: " + e.message; return; }
+  setDest(state.dest);
   render(); await refresh();
   setInterval(() => { if (!document.hidden) refresh(); }, 30000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
